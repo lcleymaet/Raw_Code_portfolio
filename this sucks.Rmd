@@ -1,0 +1,206 @@
+
+
+
+```{r}
+#install.packages('sf')
+library(sf)
+#install.packages('glmmTMB')
+library(dplyr)        
+library(glmmTMB)      # For zero-inflated Poisson model
+library(DHARMa)       
+library(ggplot2)
+library(car)
+library(spdep)
+library(spatialreg)
+library(mgcv)
+library(ggplot2)
+library(raster)
+
+```
+
+
+
+
+```{r}
+
+setwd("C:/Users/cgarcia/Documents/model_set-20241203T171329Z-001/model_set")
+grid <- st_read("grid_final.shp")
+grid <- grid %>%
+  select(-COUNTY, -WEEK, -YEAR, -SEASON_d, -av_ffrt, -av_drtn, -ave_elv)
+grid <- grid %>%
+  mutate(
+    av_rd_d_log = log(av_rd_d + 1),  # Apply log transformation
+    av_wtr_log = log(av_wtr_ + 1),   
+    av_rl_d_log = log(av_rl_d + 1), 
+    elevation_log = log(elevation + 1),  
+    ffrt_dist_log = log(ffrt_dist + 1),  
+    ffrt_drtn_log = log(ffrt_drtn + 1),  
+    a__UAC2_log = log(a__UAC2_ + 1),
+    # Now scale the log-transformed variables
+    av_rd_d_scaled = scale(av_rd_d_log),
+    av_wtr_scaled = scale(av_wtr_log),
+    av_rl_d_scaled = scale(av_rl_d_log),
+    elevation_scaled = scale(elevation_log),
+    ffrt_dist_scaled = scale(ffrt_dist_log),
+    ffrt_drtn_scaled = scale(ffrt_drtn_log),
+    a__UAC2_scaled = scale(a__UAC2_log)
+  )
+grid.agg <- grid %>%
+  group_by(ID_grid) %>%
+  summarise(
+    n = sum(n),  # Sum the number of observations (n)
+    av_rd_d = mean(av_rd_d),  # Average distance to roads
+    av_wtr_ = mean(av_wtr_),   # Average distance to water
+    av_rl_d = mean(av_rl_d),   # Average distance to rails
+    elevation = mean(elevation), # Average elevation
+    ffrt_dist = mean(ffrt_dist), # Average effort distance
+    ffrt_drtn = mean(ffrt_drtn),  # Average effort duration
+    a__UAC2_ = mean(a__UAC2_)
+  )
+
+grid.agg <- grid.agg %>%
+  mutate(
+    av_rd_d_log = log(av_rd_d + 1),  # Apply log transformation
+    av_wtr_log = log(av_wtr_ + 1),   
+    av_rl_d_log = log(av_rl_d + 1), 
+    elevation_log = log(elevation + 1),  
+    ffrt_dist_log = log(ffrt_dist + 1),  
+    ffrt_drtn_log = log(ffrt_drtn + 1),  
+    a__UAC2_log = log(a__UAC2_ + 1),
+    # Now scale the log-transformed variables
+    av_rd_d_scaled = scale(av_rd_d_log),
+    av_wtr_scaled = scale(av_wtr_log),
+    av_rl_d_scaled = scale(av_rl_d_log),
+    elevation_scaled = scale(elevation_log),
+    ffrt_dist_scaled = scale(ffrt_dist_log),
+    ffrt_drtn_scaled = scale(ffrt_drtn_log),
+    a__UAC2_scaled = scale(a__UAC2_log)
+  )
+
+grid$SEASON_g <- as.factor(grid$SEASON_g)
+
+```
+
+```{r}
+#Standard poisson model
+base_model_scaled <- glmmTMB(
+  n ~ av_rd_d_scaled + av_wtr_scaled + av_rl_d_scaled+ elevation_scaled + ffrt_dist_scaled + ffrt_drtn_scaled + SEASON_g + a__UAC2_scaled ,
+  family = poisson,
+  data = grid
+)
+summary(base_model_scaled)
+plot(predict(base_model_scaled), grid$n)
+
+table(grid$n == 0)
+#This is the attempt at the Zero Inflated Poisson Model
+zip_model_scaled <- glmmTMB(
+  n ~ av_rd_d_scaled + av_wtr_scaled + av_rl_d_scaled + elevation_scaled  + ffrt_dist_scaled + a__UAC2_scaled ,
+  ziformula = ~ av_rd_d_scaled + av_wtr_scaled + av_rl_d_scaled + elevation_scaled  + ffrt_dist_scaled + a__UAC2_scaled  ,
+  family = poisson,
+  data = grid
+)
+
+zip_model_scaled
+```
+
+```{r}
+#This is the attempt at the Negative Binomial Model
+negbin_model <- glmmTMB(
+  n ~ av_rd_d_log+ av_wtr_log + av_rl_d_log + elevation_log + ffrt_dist_log + SEASON_g + a__UAC2_log ,
+  family = nbinom2,  # Negative Binomial
+  data = grid
+)
+summary(negbin_model)
+```
+
+```{r}
+#Please ignore this for now
+library(gstat)
+variogram_residuals <- variogram(n ~ 1, data = grid)
+plot(variogram_residuals)
+```
+
+```{r}
+#Testing for spatial autocorrelation here and creating the neighbors based on a 16km (10mile) distance threshold. Anything less than 10 miles creates issues
+coords <- st_coordinates(grid.agg)
+grid.agg$long <- coords[,1]
+grid.agg$lat <- coords[,2]
+threshold_distance <- 16000
+neighbors <- dnearneigh(grid.agg, 0, threshold_distance)
+weights_list <- nb2listw(neighbors, style = "W")
+moran_test <- moran.test(grid.agg$n, listw = weights_list)
+moran_test
+
+```
+```{r}
+# Fit the SAR model
+sar_model <- lagsarlm(
+  n ~ av_rd_d_scaled + av_wtr_scaled + av_rl_d_scaled + elevation_scaled + ffrt_dist_scaled + ffrt_drtn_scaled ,
+  data = grid.agg,
+  listw = weights_list, 
+  method = "eigen"       
+)
+summary(sar_model)
+
+```
+
+```{r}
+#Fit the GAM
+grid.agg$x <- coords[, 1]
+grid.agg$y <- coords[, 2]
+gam_model <- gam(
+  n ~ av_rd_d_scaled + av_wtr_scaled + av_rl_d_scaled +
+      elevation_scaled + ffrt_dist_scaled +
+      s(x, y, bs = "tp"),  # Thin-plate spline for spatial effects
+  family = nb(),          # Negative binomial family for count data
+  data = grid.agg
+)
+summary(gam_model)
+gam.check(gam_model)
+plot(gam_model, pages = 1, scheme = 2)
+AIC(gam_model, sar_model)
+
+```
+
+```{r}
+grid.agg$predicted <- sar_model$fitted.values
+grid.centroids <- st_centroid(grid.agg)
+grid.centroids.df <- as.data.frame(st_coordinates(grid.centroids))
+grid.centroids.df$predicted <- grid.agg$predicted
+
+coordinates(grid.centroids.df) <- ~X + Y
+proj4string(grid.centroids.df) <- st_crs(grid.agg)$proj4string
+
+raster.pred <- rasterize(grid.centroids.df, raster(extent(grid.centroids.df), nrows = 100, ncols = 100), field = "predicted")
+raster.pred_smoothed <- focal(raster.pred, w = matrix(1, nrow = 5, ncol = 5), fun = mean, na.rm = TRUE)
+raster.pred_smoothed.df <- as.data.frame(raster.pred_smoothed, xy = TRUE, na.rm = TRUE)
+
+ggplot(raster.pred_smoothed.df) +
+  geom_raster(aes(x = x, y = y, fill = layer)) +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(title = "Smoothed Predicted Values of 'n' from SAR Model", fill = "Predicted") 
+```
+
+
+```{r}
+grid.agg$spatial_lag <- lag.listw(weights_list, grid.agg$n)
+
+ggplot(grid.agg) +
+  geom_sf(aes(fill = spatial_lag)) +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(title = "Spatial Lag Effect", fill = "Spatial Lag")
+```
+
+
+
+
+
+
+
+
+
+
+
+

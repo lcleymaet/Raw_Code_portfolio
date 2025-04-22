@@ -1,0 +1,631 @@
+---
+title: "GEOG_project"
+output: html_document
+date: "2024-10-07"
+---
+```{r}
+library(sf)
+library(readr)
+library(dplyr)
+library(lubridate)
+library(MASS)
+library(ggplot2)
+#install.packages('rgeos')
+#library(rgeos)
+library(fs)
+library(tidyverse)
+library(terra)
+library(RColorBrewer)
+library(spdep)
+library(spatialreg)
+library(sf)
+library(tidyverse)
+library(lwgeom)
+```
+
+```{r}
+setwd("~/GEOG_project/GEOG_project")
+shp_path <- "ebd_clean_elev/ebd_clean_elev.shp"
+ebd_clean <- st_read(shp_path)
+```
+```{r}
+setwd("~/GEOG_project/GEOG_project")
+nevada_boundary <- read_sf("State_of_Nevada_Boundary_-9134983053527663698/Nevada_State_Boundary.shp")
+```
+
+```{r}
+
+setwd("~/GEOG_project/GEOG_project")
+roads <- read_sf("tl_2019_32_prisecroads/tl_2019_32_prisecroads.shp")
+rails <- read_sf('tl_2024_us_rails/tl_2024_us_rails.shp')
+metdiv <- read_sf('tl_2024_us_metdiv/tl_2024_us_metdiv.shp')
+UAC20 <- read_sf('tl_2024_us_uac20/tl_2024_us_uac20.shp')
+county <- read_sf('tl_2024_us_county/tl_2024_us_county.shp')
+
+nevada_boundary <- st_transform(nevada_boundary, st_crs(rails))
+
+crs(nevada_boundary) == crs(roads)
+crs(rails) == crs(nevada_boundary)
+roads_bbox <- st_bbox(nevada_boundary)
+rails_nevada <- st_crop(rails, nevada_boundary)
+metdiv_nevada <- st_crop(metdiv, nevada_boundary)
+county_nevada <- st_crop(county, nevada_boundary)
+UAC20 <- st_crop(UAC20, nevada_boundary)
+plot(county_nevada$geometry)
+
+```
+#Maybe include AREAWATERx, COUNTY, FACESAH, FACES, LINEARWATER, METDIV, RAILS, UAC20
+
+
+```{r}
+
+
+setwd("~/GEOG_project/GEOG_project")
+shapefiles_LW <- "nevada_linear_water_messy" |>
+  dir_ls(recurse = TRUE, regexp = 'shp$') 
+
+# Loading all files
+sfdf_LW <- shapefiles_LW |>
+  map(st_read) |>
+  bind_rows()
+```
+
+```{r}
+shapefiles_faces <- "nevada_faces" |>
+  dir_ls(recurse = TRUE, regexp = 'shp$') 
+
+# Loading all files
+sfdf_faces <- shapefiles_faces |>
+  map(st_read) |>
+  bind_rows()
+```
+
+```{r}
+shapefiles_fa <- "nevada_facesah" |>
+  dir_ls(recurse = TRUE, regexp = 'shp$') 
+
+# Loading all files
+sfdf_fa <- shapefiles_fa |>
+  map(st_read) |>
+  bind_rows()
+```
+
+```{r}
+setwd("~/GEOG_project/GEOG_project")
+shapefiles_aw <- "nevada_area_water_messy" |>
+  dir_ls(recurse = TRUE, regexp = 'shp$') 
+
+# Loading all files
+sfdf_aw <- shapefiles_aw |>
+  map(st_read) |>
+  bind_rows()
+projcrs <- crs(sfdf_aw)
+```
+
+```{r}
+start_time <- as.POSIXct("2016-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2016-12-31 23:00:00.00 ")
+df.2016 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2017-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2017-12-31 23:00:00.00 ")
+df.2017 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2018-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2018-12-31 23:00:00.00 ")
+df.2018 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2019-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2019-12-31 23:00:00.00 ")
+df.2019 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2020-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2020-12-31 23:00:00.00 ")
+df.2020 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2021-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2021-12-31 23:00:00.00 ")
+df.2021 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+```
+
+```{r}
+library(future)
+```
+
+```{r}
+start_time_parallel <- Sys.time()
+plan(multisession, workers = 2)  # Uses two cores
+# First task: Calculating distances for df.2018
+future1 <- future({
+  df.2016.sf <- st_as_sf(df.2016, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2016.sf, sfdf_aw.sp)
+  df.2016.sf$distance_aw <- apply(distances, 1, min)
+  df.2016.sf  # Return the updated sf object
+  df.2017.sf <- st_as_sf(df.2017, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2017.sf, sfdf_aw.sp)
+  df.2017.sf$distance_aw <- apply(distances, 1, min)
+  df.2017.sf  # Return the updated sf object
+  df.2018.sf <- st_as_sf(df.2018, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2018.sf, sfdf_aw.sp)
+  df.2018.sf$distance_aw <- apply(distances, 1, min)
+  df.2018.sf  # Return the updated sf object
+  list(df.2016.sf = df.2016.sf, df.2017.sf = df.2017.sf, df.2018.sf = df.2018.sf)
+
+})
+
+# Second task: Calculating distances for df.2017
+future2 <- future({
+  df.2019.sf <- st_as_sf(df.2019, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2019.sf, sfdf_aw.sp)
+  df.2019.sf$distance_aw <- apply(distances, 1, min)
+  df.2019.sf  # Return the updated sf object
+  df.2020.sf <- st_as_sf(df.2020, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2020.sf, sfdf_aw.sp)
+  df.2020.sf$distance_aw <- apply(distances, 1, min)
+  df.2020.sf  # Return the updated sf object
+  df.2021.sf <- st_as_sf(df.2021, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2021.sf, sfdf_aw.sp)
+  df.2021.sf$distance_aw <- apply(distances, 1, min)
+  df.2021.sf  # Return the updated sf object
+  list(df.2019.sf = df.2019.sf, df.2020.sf = df.2020.sf, df.2021.sf = df.2021.sf)
+
+})
+# Collect results from each future
+result1 <- value(future1)
+result2 <- value(future2)
+
+# Extract the individual updated sf objects
+df.2016.sf <- result1$df.2016.sf
+df.2017.sf <- result1$df.2017.sf
+df.2018.sf <- result1$df.2018.sf
+
+df.2019.sf <- result2$df.2019.sf
+df.2020.sf <- result2$df.2020.sf
+df.2021.sf <- result2$df.2021.sf
+end_time_parallel <- Sys.time()
+print(end_time_parallel - start_time_parallel)
+```
+
+
+
+```{r}
+plan(multisession, workers = 2)  # Assigns two cores
+# Define the road distances calculations for the first three datasets
+future1 <- future({
+  # Calculate distances for df.2016.sf
+  distances_to_roads_2016 <- st_distance(df.2016.sf, roads)
+  df.2016.sf$distance_rd <- apply(distances_to_roads_2016, 1, min)
+  
+  # Calculate distances for df.2017.sf
+  distances_to_roads_2017 <- st_distance(df.2017.sf, roads)
+  df.2017.sf$distance_rd <- apply(distances_to_roads_2017, 1, min)
+  
+  # Calculate distances for df.2018.sf
+  distances_to_roads_2018 <- st_distance(df.2018.sf, roads)
+  df.2018.sf$distance_rd <- apply(distances_to_roads_2018, 1, min)
+  
+  list(df.2016.sf = df.2016.sf, df.2017.sf = df.2017.sf, df.2018.sf = df.2018.sf)
+})
+
+# Define the road distances calculations for the second three datasets
+future2 <- future({
+  # Calculate distances for df.2019.sf
+  distances_to_roads_2019 <- st_distance(df.2019.sf, roads)
+  df.2019.sf$distance_rd <- apply(distances_to_roads_2019, 1, min)
+  
+  # Calculate distances for df.2020.sf
+  distances_to_roads_2020 <- st_distance(df.2020.sf, roads)
+  df.2020.sf$distance_rd <- apply(distances_to_roads_2020, 1, min)
+  
+  # Calculate distances for df.2021.sf
+  distances_to_roads_2021 <- st_distance(df.2021.sf, roads)
+  df.2021.sf$distance_rd <- apply(distances_to_roads_2021, 1, min)
+  
+  list(df.2019.sf = df.2019.sf, df.2020.sf = df.2020.sf, df.2021.sf = df.2021.sf)
+})
+# Collect results from each future
+result1 <- value(future1)
+result2 <- value(future2)
+
+# Extract the individual updated sf objects
+df.2016.sf <- result1$df.2016.sf
+df.2017.sf <- result1$df.2017.sf
+df.2018.sf <- result1$df.2018.sf
+
+df.2019.sf <- result2$df.2019.sf
+df.2020.sf <- result2$df.2020.sf
+df.2021.sf <- result2$df.2021.sf
+
+```
+
+```{r}
+plan(multisession, workers = 2)  # Assigns two cores
+# Define the road distances calculations for the first three datasets
+future1 <- future({
+  # Calculate distances for df.2016.sf
+  distances_to_rail_2016 <- st_distance(df.2016.sf, rails_nevada)
+  df.2016.sf$distance_rail <- apply(distances_to_rail_2016, 1, min)
+  
+  # Calculate distances for df.2017.sf
+  distances_to_rail_2017 <- st_distance(df.2017.sf, rails_nevada)
+  df.2017.sf$distance_rail<- apply(distances_to_rail_2017, 1, min)
+  
+  # Calculate distances for df.2018.sf
+  distances_to_rail_2018 <- st_distance(df.2018.sf, rails_nevada)
+  df.2018.sf$distance_rail <- apply(distances_to_rail_2018, 1, min)
+  
+  list(df.2016.sf = df.2016.sf, df.2017.sf = df.2017.sf, df.2018.sf = df.2018.sf)
+})
+
+# Define the road distances calculations for the second three datasets
+future2 <- future({
+  # Calculate distances for df.2019.sf
+  distances_to_rail_2019 <- st_distance(df.2019.sf, rails_nevada)
+  df.2019.sf$distance_rail <- apply(distances_to_rail_2019, 1, min)
+  
+  # Calculate distances for df.2020.sf
+  distances_to_rail_2020 <- st_distance(df.2020.sf, rails_nevada)
+  df.2020.sf$distance_rail <- apply(distances_to_rail_2020, 1, min)
+  
+  # Calculate distances for df.2021.sf
+  distances_to_rail_2021 <- st_distance(df.2021.sf, rails_nevada)
+  df.2021.sf$distance_rail <- apply(distances_to_rail_2021, 1, min)
+  
+  list(df.2019.sf = df.2019.sf, df.2020.sf = df.2020.sf, df.2021.sf = df.2021.sf)
+})
+# Collect results from each future
+result1 <- value(future1)
+result2 <- value(future2)
+
+# Extract the individual updated sf objects
+df.2016.sf <- result1$df.2016.sf
+df.2017.sf <- result1$df.2017.sf
+df.2018.sf <- result1$df.2018.sf
+
+df.2019.sf <- result2$df.2019.sf
+df.2020.sf <- result2$df.2020.sf
+df.2021.sf <- result2$df.2021.sf
+
+```
+
+```{r}
+start_time <- as.POSIXct("2015-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2015-12-31 23:00:00.00 ")
+df.2015 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2014-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2014-12-31 23:00:00.00 ")
+df.2014 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2013-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2013-12-31 23:00:00.00 ")
+df.2013 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2012-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2012-12-31 23:00:00.00 ")
+df.2012 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2011-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2011-12-31 23:00:00.00 ")
+df.2011 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+start_time <- as.POSIXct("2010-01-01 00:00:00.00 ")
+end_time <- as.POSIXct("2010-12-31 23:00:00.00 ")
+df.2010 <- ebd_clean %>%
+  filter(ebd_clean$OBSERVD>= start_time & ebd_clean$OBSERVD <= end_time)
+```
+
+```{r}
+start_time_parallel <- Sys.time()
+plan(multisession, workers = 2)  # Uses two cores
+# First task: Calculating distances for df.2018
+future1 <- future({
+  df.2015.sf <- st_as_sf(df.2015, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2015.sf, sfdf_aw.sp)
+  df.2015.sf$distance_aw <- apply(distances, 1, min)
+  df.2015.sf  # Return the updated sf object
+  df.2014.sf <- st_as_sf(df.2014, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2014.sf, sfdf_aw.sp)
+  df.2014.sf$distance_aw <- apply(distances, 1, min)
+  df.2014.sf  # Return the updated sf object
+  df.2013.sf <- st_as_sf(df.2013, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2013.sf, sfdf_aw.sp)
+  df.2013.sf$distance_aw <- apply(distances, 1, min)
+  df.2013.sf  # Return the updated sf object
+  list(df.2015.sf = df.2015.sf, df.2014.sf = df.2014.sf, df.2013.sf = df.2013.sf)
+
+})
+
+# Second task: Calculating distances for df.2017
+future2 <- future({
+  df.2012.sf <- st_as_sf(df.2012, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2012.sf, sfdf_aw.sp)
+  df.2012.sf$distance_aw <- apply(distances, 1, min)
+  df.2012.sf  # Return the updated sf object
+  df.2011.sf <- st_as_sf(df.2011, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2011.sf, sfdf_aw.sp)
+  df.2011.sf$distance_aw <- apply(distances, 1, min)
+  df.2011.sf  # Return the updated sf object
+  df.2010.sf <- st_as_sf(df.2010, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  sfdf_aw.sp <- st_as_sf(sfdf_aw, coords = c("LONGITUDE", "LATITUDE"), crs = projcrs)
+  distances <- st_distance(df.2010.sf, sfdf_aw.sp)
+  df.2010.sf$distance_aw <- apply(distances, 1, min)
+  df.2010.sf  # Return the updated sf object
+  list(df.2012.sf = df.2012.sf, df.2011.sf = df.2011.sf, df.2010.sf = df.2010.sf)
+
+})
+# Collect results from each future
+result1 <- value(future1)
+result2 <- value(future2)
+
+# Extract the individual updated sf objects
+df.2015.sf <- result1$df.2015.sf
+df.2014.sf <- result1$df.2014.sf
+df.2013.sf <- result1$df.2013.sf
+
+df.2012.sf <- result2$df.2012.sf
+df.2011.sf <- result2$df.2011.sf
+df.2010.sf <- result2$df.2010.sf
+end_time_parallel <- Sys.time()
+print(end_time_parallel - start_time_parallel)
+```
+
+```{r}
+plan(multisession, workers = 2)  # Assigns two cores
+# Define the road distances calculations for the first three datasets
+future1 <- future({
+  # Calculate distances for df.2016.sf
+  distances_to_roads_2015 <- st_distance(df.2015.sf, roads)
+  df.2015.sf$distance_rd <- apply(distances_to_roads_2015, 1, min)
+  
+  # Calculate distances for df.2017.sf
+  distances_to_roads_2014 <- st_distance(df.2014.sf, roads)
+  df.2014.sf$distance_rd <- apply(distances_to_roads_2014, 1, min)
+  
+  # Calculate distances for df.2018.sf
+  distances_to_roads_2013 <- st_distance(df.2013.sf, roads)
+  df.2013.sf$distance_rd <- apply(distances_to_roads_2013, 1, min)
+  
+  list(df.2015.sf = df.2015.sf, df.2014.sf = df.2014.sf, df.2013.sf = df.2013.sf)
+})
+
+# Define the road distances calculations for the second three datasets
+future2 <- future({
+  # Calculate distances for df.2019.sf
+  distances_to_roads_2012 <- st_distance(df.2012.sf, roads)
+  df.2012.sf$distance_rd <- apply(distances_to_roads_2012, 1, min)
+  
+  # Calculate distances for df.2020.sf
+  distances_to_roads_2011 <- st_distance(df.2011.sf, roads)
+  df.2011.sf$distance_rd <- apply(distances_to_roads_2011, 1, min)
+  
+  # Calculate distances for df.2021.sf
+  distances_to_roads_2010 <- st_distance(df.2010.sf, roads)
+  df.2010.sf$distance_rd <- apply(distances_to_roads_2010, 1, min)
+  
+  list(df.2012.sf = df.2012.sf, df.2011.sf = df.2011.sf, df.2010.sf = df.2010.sf)
+})
+# Collect results from each future
+result1 <- value(future1)
+result2 <- value(future2)
+
+# Extract the individual updated sf objects
+df.2015.sf <- result1$df.2015.sf
+df.2014.sf <- result1$df.2014.sf
+df.2013.sf <- result1$df.2013.sf
+
+df.2012.sf <- result2$df.2012.sf
+df.2011.sf <- result2$df.2011.sf
+df.2010.sf <- result2$df.2010.sf
+
+```
+
+```{r}
+plan(multisession, workers = 2)  # Assigns two cores
+# Define the road distances calculations for the first three datasets
+future1 <- future({
+  # Calculate distances for df.2016.sf
+  distances_to_rail_2015 <- st_distance(df.2015.sf, rails_nevada)
+  df.2015.sf$distance_rail <- apply(distances_to_rail_2015, 1, min)
+  
+  # Calculate distances for df.2017.sf
+  distances_to_rail_2014 <- st_distance(df.2014.sf, rails_nevada)
+  df.2014.sf$distance_rail<- apply(distances_to_rail_2014, 1, min)
+  
+  # Calculate distances for df.2018.sf
+  distances_to_rail_2013 <- st_distance(df.2013.sf, rails_nevada)
+  df.2013.sf$distance_rail <- apply(distances_to_rail_2013, 1, min)
+  
+  list(df.2015.sf = df.2015.sf, df.2014.sf = df.2014.sf, df.2013.sf = df.2013.sf)
+})
+
+# Define the road distances calculations for the second three datasets
+future2 <- future({
+  # Calculate distances for df.2019.sf
+  distances_to_rail_2012 <- st_distance(df.2012.sf, rails_nevada)
+  df.2012.sf$distance_rail <- apply(distances_to_rail_2012, 1, min)
+  
+  # Calculate distances for df.2020.sf
+  distances_to_rail_2011 <- st_distance(df.2011.sf, rails_nevada)
+  df.2011.sf$distance_rail <- apply(distances_to_rail_2011, 1, min)
+  
+  # Calculate distances for df.2021.sf
+  distances_to_rail_2010<- st_distance(df.2010.sf, rails_nevada)
+  df.2010.sf$distance_rail <- apply(distances_to_rail_2010, 1, min)
+  
+  list(df.2012.sf = df.2012.sf, df.2011.sf = df.2011.sf, df.2010.sf = df.2010.sf)
+})
+# Collect results from each future
+result1 <- value(future1)
+result2 <- value(future2)
+
+# Extract the individual updated sf objects
+df.2015.sf <- result1$df.2015.sf
+df.2014.sf <- result1$df.2014.sf
+df.2013.sf <- result1$df.2013.sf
+
+df.2012.sf <- result2$df.2012.sf
+df.2011.sf <- result2$df.2011.sf
+df.2010.sf <- result2$df.2010.sf
+
+```
+
+```{r}
+# List of all sf objects
+sf_objects <- list(df.2010.sf, df.2011.sf, df.2012.sf, df.2013.sf, df.2014.sf, df.2015.sf, 
+                   df.2016.sf, df.2017.sf, df.2018.sf, df.2019.sf, df.2020.sf, df.2021.sf)
+
+# Loop through each sf object, create a folder, and save the shapefile
+for (i in 1:length(sf_objects)) {
+  # Create a folder for each year
+  folder_name <- paste0("df_", 2010 + i - 1)  # Create folder name like df_2010, df_2011, etc.
+  dir.create(folder_name, showWarnings = FALSE)  # Create folder, suppress warnings if it exists
+  
+  # Save shapefile into the corresponding folder
+  st_write(sf_objects[[i]], file.path(folder_name, paste0("df.", 2010 + i - 1, ".shp")))
+}
+```
+```{r}
+# Load the required packages
+library(sf)
+library(future)
+
+# Set up a parallel plan with three cores
+plan(multisession, workers = 3)
+
+# Split the sf objects into three groups for parallel processing
+sf_objects1 <- list(df.2010.sf, df.2011.sf, df.2012.sf, df.2013.sf)
+sf_objects2 <- list(df.2014.sf, df.2015.sf, df.2016.sf, df.2017.sf)
+sf_objects3 <- list(df.2018.sf, df.2019.sf, df.2020.sf, df.2021.sf)
+
+# Function to calculate distances to UAC20 for each sf object in a list
+calculate_distances <- function(sf_list, target) {
+  for (i in 1:length(sf_list)) {
+    # Ensure CRS matches
+    sf_list[[i]] <- st_transform(sf_list[[i]], st_crs(target))
+    
+    # Calculate distances to UAC20
+    distances <- st_distance(sf_list[[i]], target)
+    min_distances <- apply(distances, 1, min)
+    
+    # Add the minimum distances as a new column
+    sf_list[[i]]$distance_UAC20 <- min_distances
+  }
+  return(sf_list)
+}
+
+# Run the calculations in parallel across three cores
+future1 <- future({ calculate_distances(sf_objects1, UAC20) })
+future2 <- future({ calculate_distances(sf_objects2, UAC20) })
+future3 <- future({ calculate_distances(sf_objects3, UAC20) })
+
+# Collect results
+result1 <- value(future1)
+result2 <- value(future2)
+result3 <- value(future3)
+
+# Extract the individual updated sf objects
+df.2010.sf <- result1[[1]]
+df.2011.sf <- result1[[2]]
+df.2012.sf <- result1[[3]]
+df.2013.sf <- result1[[4]]
+
+df.2014.sf <- result2[[1]]
+df.2015.sf <- result2[[2]]
+df.2016.sf <- result2[[3]]
+df.2017.sf <- result2[[4]]
+
+df.2018.sf <- result3[[1]]
+df.2019.sf <- result3[[2]]
+df.2020.sf <- result3[[3]]
+df.2021.sf <- result3[[4]]
+
+```
+
+```{r}
+library(dplyr)
+
+# Combine all sf objects into one
+lilly.sf <- bind_rows(df.2010.sf, df.2011.sf, df.2012.sf, df.2013.sf,
+                         df.2014.sf, df.2015.sf, df.2016.sf, df.2017.sf,
+                         df.2018.sf, df.2019.sf, df.2020.sf, df.2021.sf)
+```
+
+
+```{r}
+setwd("~/GEOG_project/GEOG_project")
+# Define the folder path
+folder_path <- "distances"
+
+# Create the folder if it doesn't exist
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path)
+}
+
+# Save combined_sf as a shapefile in the new "distances" folder
+st_write(lilly.sf, file.path(folder_path, "ebd_data_distances.shp"))
+
+```
+```{r}
+#library(splancs)
+#library(spatstat)
+# Load required packages
+lilly2.sf <- st_transform(lilly2.sf, st_crs(nevada_boundary))
+lilly2.sf <- lilly2.sf %>%
+  distinct(geometry, .keep_all = TRUE)
+
+bbox <- st_bbox(nevada_boundary) # Use lilly.sf or any reference dataset
+
+# Convert to a ppp object
+lilly2.ppp <- as.ppp(st_coordinates(lilly2.sf), W = owin(c(bbox["xmin"], bbox["xmax"]), c(bbox["ymin"], bbox["ymax"])))
+
+```
+
+```{r}
+lilly2.env.G<- envelope(lilly2.ppp, fun=Gest,  nsim=10, savefuns = T)
+mad.test(lilly2.env.G)
+plot(lilly2.env.G)
+```
+```{r}
+bwhlilly<- bw.diggle(lilly2.ppp)
+events.kernel.bw <- density(x = lilly.ppp, sigma = bwhevents)
+plot(events.kernel.bw)
+```
+```{r}
+events.raw <-as.data.frame(st_coordinates(lilly2.sf))
+ggplot(events.raw, aes(x=X, y=Y))  + geom_density2d_filled()+ geom_point(cex=0.2)
+```
+```{r}
+library(dplyr)
+
+# Filter out rows where COUNTY is either Clark or Washoe
+lilly3.sf <- lilly.sf %>%
+  filter(!(COUNTY %in% c("Clark", "Washoe")))
+
+```
+
+
+```{r}
+
+# Create the folder if it doesn't exist
+if (!dir.exists("clustering_distances")) {
+  dir.create("clustering_distances")
+}
+
+# Save the sf object as a shapefile in the folder
+st_write(lilly.sf, "clustering_distances/lilly.shp", delete_layer = TRUE)
+
+```
+

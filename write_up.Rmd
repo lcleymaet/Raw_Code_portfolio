@@ -1,0 +1,297 @@
+---
+output:
+  pdf_document:
+header-includes:
+  \usepackage{booktabs}
+  \usepackage{graphicx}
+  \usepackage{wrapfig}
+  \usepackage{tikz}
+  \usetikzlibrary{shapes,arrows,positioning}
+  \usepackage{amsmath}
+  \usepackage{caption}
+  \usepackage{subcaption}
+---
+\fontsize{12}{22}
+\selectfont
+
+\begin{titlepage}
+   \begin{center}
+   	\vspace*{1cm}
+
+   	\huge \textbf{Modeling Presence of Citizen Science Data Points}
+       	 
+   	\vspace{1.5cm}
+
+   	\Large \textbf{Lilly Peacor\\Celime Garcia}
+       	 
+   	\vspace{0.8cm}
+   	\large
+   	University of Nevada, Reno\\
+   	Department of Mathematics and Statistics\\
+   	STAT 757 Final Project\\
+       	 
+   \end{center}
+\end{titlepage}
+
+\newpage
+\begin{center} \Large \textbf{Abstract} \end{center}
+
+Citizen science databases are widely used in ecological research due to the larger range of coverage than a small research team is able to obtain, but the nature of these databases introduces spatial bias. People uploading to these databases very commonly are doing so on a volunteer basis, and generally only go where is convenient. This raises issues of spatial bias when using such data sets. One such database, eBird [1], is used regularly for studies focusing on avian populations. In this study we point out the severity of clustering of observations in this dataset, as well as create models that can be used in future studies as grounds for including predictive modeling in studies, rather than only real observation based data. 
+
+
+\section{1: Introduction}
+
+EBird is a large citizen science based database of birdwatching observations made by members of the public. This database is, in turn, used in avian ecological studies, many of which are published in peer reviewed journals. The nature of citizen science databases enables a broader capture of the subject matter, but is at the mercy of where lay people decide to go. We believe that this leads to significant bias in the location of observations, potentially leading to extreme clustering of observation points in space. This bias should be accounted for in ecological studies.
+
+
+\subsection{1.1: Goal}
+
+In this study, we hope to show the extent to which eBird data points are clustered. We then will generate two different regression models:
+
+\begin{enumerate}
+  \vspace{0.1in}
+  \item A count based regression model which shows the expected number of observations within a given area based on a number of covariates, and
+  \item  A logistic regression model which shows the probability of having 1 or more observations in a given area, ignoring total counts of points.
+\end{enumerate}
+
+
+\section{2: Methods}
+
+The covariates and response variable were plotted onto the same plane using masking and intersection functions. Once all of the covariates and response variables shared the same CRS and boundaries, a grid system was established. The grid system groups local observations into bin for easier calculation. Afterwards, the distances from the grid's centroid to the covariates are calculated with the st_distance function. A seasonal factor was created from the time that the observations were taken. The covariates were scaled with a log function and the scale() function in R.
+
+\subsection{2.1: Data Preparation}
+
+All analyses and data preparation was conducted in R, using packages including dplyr, sf, terra, raster, mgcv, nlme, and MASS.
+ 
+The raw dataset included several columns used for reducing the number of observations used. We kept only complete observations where the birdwatcher, to their knowledge, recorded every bird observed during the observation period. We also omitted all observations not from within the Nevada state border by the latitude and longitude, incidental observations (the birdwatcher recorded only one bird of interest as they came across it), and any observations that did not record the duration. We then removed the effort area and notes columns as these were not commonly reported, as well as county, state, and other location and project codes in order to reduce the size of the dataset. 
+
+After reducing the dataset, we then added several covariates. The dataset included latitude and longitude for each datapoint, enabling this analysis (fig. 1). Covariates added using this point data included distance from each point to the nearest road, water body, railroad, (fig. 1,2) and city inside the state of Nevada as well as the elevation of each data point. We also used the date to group observations into season.
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.4\linewidth]{plots/datapoints.png}
+  \caption{Mapped data points}
+  \label{fig. 1}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.4\linewidth]{plots/roads.png}
+  \caption{Mapped Nevada Roads}
+  \label{fig. 2}
+\end{subfigure}
+\label{fig. 1}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.4\linewidth]{plots/water_bodies.png}
+  \caption{Nevada Water Bodies}
+  \label{fig. 3}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.4\linewidth]{plots/rails.png}
+  \caption{Mapped Nevada Roads}
+  \label{fig. 4}
+\end{subfigure}
+\label{fig. 2}
+\end{figure}
+
+To prepare for regression analysis, we aggregated points into polygons, recording the number of observations per polygon, as well as average effort in each polygon (fig. 5). We create 4 copies of each polygon, one for each season. We then added a binary variable for determining if in that season and polygon there were one or more observations. For polygons which did not contain any observations, we added distance and elevation data based on the centroid, and modeled effort duration and effort distance based on all other variables, then used fitted values for these variables.
+
+
+\subsection{2.2: Kernel Density}
+
+The kernel density is intended to highlight areas of Nevada with greater observation densities. This plot is the first step into recognizing spatial autocorrelation. Spatial autocorrelation is a term that describes how points in space are related to one another. In order to test for spatial autocorrelation we can use the statistic from Moran’s I. When we observe clustering in a kernel density plot, these points are more likely to be influencing one another and thus are more similar. The antithesis is also true. In order to make the kernel density. Only the unique polygon coordinates are taken to make a point process model (ppm) and then these points are plotted for an initial interpretation. Afterwards, an envelope is created and tested with a mad test and this will indicate clustering or over dispersion. 
+
+
+\subsection{2.3: Count Model}
+
+Two count models were made with different spatial autocorrelation effects. While it is important to model where these observations will take place, another piece to consider is how many observations will take place. This gives us insight into which places receive the lowest observations. Nevada is a large place which means some grids will have little or no observations. With this in mind, we are led to either a zero inflated Poisson model or a negative binomial model. We chose a negative binomial model with spatial interactions to model the counts in each grid. The first of the count models utilized a generalized additive model (GAM) with the polygons coordinates as the spatial factor. The second of the count models utilized a spatial autoregressive model (SAR) with a weighted neighbor system as the spatial factor. The neighbors for this model are based on 16 kilometer increments. These two models will be compared to one another.
+
+
+\subsection{2.4: Logistic Model}
+
+All models tested were generalized models with a binomial family and logit link function. Initial testing resulted in the model with the best AIC being a mixed effects model, using fixed effects of all distance variables, effort duration, and elevation, as well as a random effect on season. This model was then checked for spatial autocorrelation of residuals using a semivariogram. The variogram (fig. 5) displayed approximately exponential correlation structure of the residuals.
+
+\begin{wrapfigure}{l}{0.3\textwidth}
+  \centering
+  \includegraphics[width = 0.25\textwidth]{plots/residual_variogram_logreg.png}
+  \caption{Semivariogram of residuals of the best model.}
+  \label{fig. 5}
+\end{wrapfigure}
+
+To account for this correlation structure, we tested more models accounting for the spatial effect. The final model selected was a generalized additive model, with covariates smoothings of all distance variables and elevation by season, as well as effort distance not accounting for seasonal changes, and a thin plate spline of the latitude and longitude. K was increased until the computer was unable to run the regression in a reasonable amount of time.
+
+
+This final model was selected due to both accounting for spatial correlations and maximizing deviance explained.
+
+\section{3: Results}
+
+\subsection{3.1: Kernel Density}
+
+The kernel map is displayed in fig. 4. The mad test on the envelope (fig. 4) indicated that our points are heavily clustered in the Washoe and Clark county regions. The predicted values for our points fall above the envelope which indicates clustering is more likely than random happenstance. After the omission of these counties’ data, the points are still heavily clustered in these regions. While the points do follow geographical landmarks like I-80 and other major road systems across Nevada, these points have little ‘density’ due to an inflated clustering effect. The Moran’s I statistic was 0.33 indicating that our count data per cell is over dispersed. This means that our grids with counts above zero are over dispersed due to the zero inflated observation counts. This should not be confused with the clustering of the observations.
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.5\linewidth]{757_images/nevada kernel (2)}
+  \caption{Kernel Density Map}
+  \label{fig. 6}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.5\linewidth]{757_images/nevada_env}
+  \caption{Envelope graph}
+  \label{fig. 7}
+\end{subfigure}
+\caption{Kernel Density Output}
+\end{figure}
+
+ 
+\subsection{3.2: Count Model}
+The GAM and the SAR count models both did well in different areas. The GAM had the lowest AIC (fig. 5) at 10,966 while the SAR had an AIC of 25,586. The GAM’s deviance explained was 53.9% (fig. 5) which is pretty good considering the majority of the grid’s counts were zero and the clustering was bimodal. Using AIC alone, the GAM is the better choice for the count model with a negative binomial family. The residuals for the GAM are not iid. The output plots are displayed in figure 6. Maps for the GAM and SAR outputs are in figure 7.
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.6\textwidth}
+  \centering
+  \includegraphics[width=.6\linewidth]{757_images/aic_757.png}
+  \caption{AIC table}
+  \label{fig. 8}
+\end{subfigure}%
+\begin{subfigure}{.4\textwidth}
+  \centering
+  \includegraphics[width=.6\linewidth]{757_images/residualsgam_757.png}
+  \caption{GAm residuals plot}
+  \label{fig. 9}
+\end{subfigure}
+\caption{Model Selection tools}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{757_images/gam_757.png}
+  \caption{GAM output}
+  \label{fig. 10}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{757_images/sar_757.png}
+  \caption{SAR output}
+  \label{fig. 11}
+\end{subfigure}
+\caption{GAM and SAR model summaries}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{757_images/nevada_gam.png}
+  \caption{GAM mapped output}
+  \label{fig. 12}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{757_images/nevada_sar.png}
+  \caption{SAR map output}
+  \label{fig. 13}
+\end{subfigure}
+\caption{Mapped model outputs}
+\end{figure}
+
+\subsection{3.3: Logistic Model}
+
+The summary output from R for the selected model shows the effect of each variable by season (fig. 8). The deviance explained was 37.4%. Residuals vs linear prediction plot (fig. 9) is mostly good, with some issues near 0, but this was to be expected from the dataset. The QQ plot (fig. 9) shows that residuals are somewhat consistent with the expected distribution and raises no issues. 
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/Log_reg_sum2.png}
+  \caption{Summary output from R for logistic regression}
+  \label{fig. 14}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/resid_vs_lin_pred.png}
+  \caption{Residuals vs Linear Prediction plot}
+  \label{fig. 15}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/QQ.png}
+  \caption{QQ plot of residuals for Logistic Regression}
+  \label{fig. 16}
+\end{subfigure}
+\caption{Figures used to check model assumptions}
+\end{figure}
+
+The predicted probability of having an observation is displayed as a raster by season, with centroids of polygons where there were at least one observation overlaid (fig. 10, 11). 
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/Spring_Predictions.png}
+  \caption{Rasterized predicted probabilities for Spring}
+  \label{fig. 17}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/Summer_Predictions.png}
+  \caption{Rasterized predicted probabilities for Summer}
+  \label{fig. 18}
+\end{subfigure}
+\caption{Rasters of predicted probabilities of observations for Spring and Summer}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/Fall_Predictions.png}
+  \caption{Rasterized predicted probabilities for Fall}
+  \label{fig. 19}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=.7\linewidth]{plots/Sinter_Predictions.png}
+  \caption{Rasterized predicted probabilities for Winter}
+  \label{fig. 20}
+\end{subfigure}
+\caption{Rasters of predicted probabilities of observations for Fall and Winter}
+\end{figure}
+
+
+\section{4: Discussion}
+
+The kernel density analysis revealed significant clustering among the data points for eBird observations in the state of Nevada, warranting further investigation to the likelihood of having observations across the state. This clustering raises major concerns for any studies utilizing this dataset, as significant spatial bias may not be accounted for. Should studies seek to map ranges for specific bird species, they will need to account for areas that have too few observations, as well as areas that have an excess of observations.
+
+The predicted count per grid plot has been smoothened a lot by the GAM which loses some specificity with regard to actual geographical landmarks which is the trade off for the higher explained deviance. Increasing the k value in the GAM allowed for a greater deviance explained and a diminishing smoothening effect but R kept crashing if we went above K=85. K=20 had a deviance explained of 40% so being able to somehow increase K might grant someone a better model. The SAR should still be kept in consideration because it’s predicted values were much more inline with the original geometry of the observation points in Nevada and it granted better resolution. I think that the smoothing parameters in the GAM results in a lower AIC compared to the SAR. If this were to be repeated again, a different weighting system with the neighbors might have improved the models accuracy. The main issue with both count models would be the vast variance due to the zero inflated cells. These two models may perform better under a smaller sample region where covariates can play more of a role compared to population. 
+
+This logistic regression model provides a basis for showing the likelihood of obtaining observations in certain areas across the state. This model shows that this dataset may be insufficient in order to accurately determine bird ranges or to be used in other ecological studies into avian populations without further predictive modeling on top of present observations. This model can be applied to specific species observations in smaller ranges in order to fist show a lack of observations in areas surrounding species ranges, and second connect the range together through spaces that there were no observations via presence-absence modelling and least cost pathing after including relevant covariates for the species in question. This can then be published to the public to drive eBird observers to go to those areas the species is predicted to be, assisting in confirming model predictive power, as well as providing real data points to more accurately describe species ranges. The model diagnostics showed otherwise good results, including a decent enough residual QQ plot. The one potentially troubling diagnostic was the residuals vs linear predictions plot, with most points along the 0 line, but with significant deviations near 0. This is likely due to the very large number of grids with no observations compared to the number with observations, leading to high variance around 0.
+
+While useful for later studies, the models here were not as strong as we had hoped for. This is likely due to the very large and sparsely populated area the study covered. The count model was severely 0 inflated, with very high counts for some areas, leading to an extremely large variance in the response variable. The logistic model was limited largely by computing power available. The k-values were consistently shown to be too low for smoothing parameters, but the computer used to run the analyses was unable to produce results in a reasonable time for higher k values, as well as the software used (R-studio) would crash. Ideally, covariates would be kriged over the entire study area and a more specific presence-absence approach would be used, but this, too, proved to be too intensive. 
+
+This study serves as a starting point for future analyses in more targeted areas, and shows some faults in the eBird citizen science based database. These faults in coverage should be accounted for in future studies utilizing citizen science databases.
+
+
+\newpage
+\begin{center} \Large \textbf{References} \end{center}
+\begin{enumerate}
+  \vspace{0.1in}
+  \item Sullivan, B.L., C.L. Wood, M.J. Iliff, R.E. Bonney, D. Fink, and S. Kelling. 2009. eBird: a citizen-based bird observation network in the biological sciences. Biological Conservation 142: 2282-2292.
+  \item U.S. Department of Commerce, U.S. Census Bureau, Geography Division, Geospatial Products Branch. 2023. TIGER/Line Shapefile, 2023, State, Nevada, Primary and Secondary Roads. https://catalog.data.gov/dataset/tiger-line-shapefile-2023-state-nevada-primary-and-secondary-roads
+  \item United States Census Bureau. 2024. TIGER shapefiles. https://www2.census.gov/geo/tiger/TIGER2024/
+  \item Nevada Department of Transportation. 2024. State of Nevada Boundary shapefile. https://geohub-ndot.hub.arcgis.com/datasets/NDOT::state-of-nevada-boundary/explore
+\end{enumerate}
