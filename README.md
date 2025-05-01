@@ -3,8 +3,11 @@ A collection of project code that completes various data analysis tasks. The dat
 
 Code is specialized to specific datasets. Projects are grouped into individual folders as some projects consist of many different code files due to the nature of the analysis (some scripts may take several hours to run, and separating scripts allowed for piecewise analysis).
 
-## e-Bird observation modeling
+## FF_NN_classification_and_regression_practice
 
-Files written by me are RasterGrid_LogisticPrep.R, aggregate_and_check.R, ebd_clean.R, gridding.R, and logistic_reg.R. Additionally, write_up.Rmd was largely written by me. Other files are writted by a collaborator on the project.
+This file is a Python notebook that contains code which imports two datasets from Kaggle, pre-processes those datasets, and creates two models. The diabetes dataset is a classification problem and the cancer dataset is a regression problem. These datasets are modeled using simple fully connected, feed forward neural networks built using the Keras package. 
 
-This project sought to conduct preliminary analysis and determine if it is possible to model e-Bird citizen science database observations in Nevada using limited data. The project includes data cleaning, missing data modeling, logistic regression, and visualization. Findings are detailed in write_up.Rmd, including charts, analyses, and discussion of results. This project is being used as a basis for the analysis that will be conducted in my thesis, where the first part is describing observer bias in the e-Bird database and creating a model that predicts the likelihood of obtaining an observation in any given location.
+The cancer dataset successfully produces a strong model which reports low MSE on both the training and testing data. The hyperparameter settings are those which resulted in a good balance between further lowering the MSE, minimizing overfitting, and low computation time. 
+
+The diabetes dataset seeks to model history of gestational diabetes based on a number of common health-related covariates. This dataset has proved to be challenging. Through many different iterations and data transformations, this dataset could not result in accuracy very far from 50%, indicating that while we could get increasingly good accuracy on the training data by adding training epochs and depth to the network, the dataset itself appears to just contain noise. This was further confirmed by both consultation with colleagues working on the same problem as well as the course instructor who further attempted fitting the dataset to several non-neural network machine learning models. This dataset warrants further investigation to find a good model that can accurately classify datapoints. 
+
