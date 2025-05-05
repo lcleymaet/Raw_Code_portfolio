@@ -8,3 +8,7 @@ Code is specialized to specific datasets. Projects are grouped into individual f
 Files written by me are RasterGrid_LogisticPrep.R, aggregate_and_check.R, ebd_clean.R, gridding.R, and logistic_reg.R. Additionally, write_up.Rmd was largely written by me. Other files are writted by a collaborator on the project.
 
 This project sought to conduct preliminary analysis and determine if it is possible to model e-Bird citizen science database observations in Nevada using limited data. The project includes data cleaning, missing data modeling, logistic regression, and visualization. Findings are detailed in write_up.Rmd, including charts, analyses, and discussion of results. This project is being used as a basis for the analysis that will be conducted in my thesis, where the first part is describing observer bias in the e-Bird database and creating a model that predicts the likelihood of obtaining an observation in any given location.
+
+## Modeling Problems from Coursework
+
+This contains Python notebooks that showcase projects assigned through my master's coursework. Currently this includes only some neural network problems, but will eventually include other projects in data modelling as I continue to update this repository with coursework completed prior to the creation of this portfolio of work.
